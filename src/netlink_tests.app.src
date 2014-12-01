@@ -1,0 +1,11 @@
+{application, netlink_tests,
+ [
+  {description, ""},
+  {vsn, ""},
+  {registered, []},
+  {applications, [
+                  kernel,
+                  stdlib
+                 ]},
+  {env, []}
+ ]}.
