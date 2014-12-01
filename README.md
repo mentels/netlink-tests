@@ -7,6 +7,5 @@ The library is an Erlang binding to [libnl](http://www.infradead.org/~tgr/libnl/
 Root privileges are required to run the suites.
 
 ```bash
-./rebar get-deps compile
-sudo make
+sudo make run
 ```
