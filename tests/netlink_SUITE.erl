@@ -5,59 +5,108 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("eunit/include/eunit.hrl").
 
--define(VETH_END_A, "veth100").
--define(VETH_END_B, "veth200").
+-define(VETH_INTF_1, "veth100").
+-define(VETH_INTF_2, "veth200").
+-define(TAP_INTF, "tap100").
+
+%%--------------------------------------------------------------------
+%% Suite configuration
+%%--------------------------------------------------------------------
 
 all() ->
-    [should_notify_about_veth_interfaces_flags].
+    [should_notify_about_veth_interfaces_flags,
+     should_notify_about_tap_interfaces_flags].
+
+%%--------------------------------------------------------------------
+%% Init & teardown
+%%--------------------------------------------------------------------
 
 init_per_suite(Config) ->
-    {ok, Addrs} = inet:getifaddrs(),
-    case {lists:keyfind("veth100", 1, Addrs),
-          lists:keyfind("veth200", 1, Addrs)} of
-        {false, false} ->
-            Cmd = io_lib:format("ip link add ~s type veth peer name ~s",
-                                [?VETH_END_A, ?VETH_END_B]),
-            os:cmd(Cmd);
-        _ ->
-            ct:fail("Interfaces ~p ~p already exist",
-                    [?VETH_END_A, ?VETH_END_B])
-    end,
     netlink:start(),
     Config.
 
 end_per_suite(_Config) ->
-    netlink:stop(),
-    Cmd = io_lib:format("ip link del ~s", [?VETH_END_A]),
-    os:cmd(Cmd).
+    netlink:stop().
+
+init_per_testcase(should_notify_about_veth_interfaces_flags, Config) ->
+    case interfaces_exist_in_the_os([?VETH_INTF_1, ?VETH_INTF_2]) of
+        false ->
+            create_veth_interfaces_pair(?VETH_INTF_1, ?VETH_INTF_2);
+        true ->
+            ct:fail("Interfaces ~p and ~p already exist",
+                    [?VETH_INTF_1, ?VETH_INTF_2])
+    end,
+    [{intf_to_del, ?VETH_INTF_1} | Config];
+init_per_testcase(should_notify_about_tap_interfaces_flags, Config) ->
+    case interfaces_exist_in_the_os([?TAP_INTF]) of
+        false ->
+            create_tap_interface(?TAP_INTF);
+        true ->
+            ct:fail("Interface ~p already exist", [?TAP_INTF])
+    end,
+    [{intf_to_del, ?TAP_INTF} | Config].
+
+end_per_testcase(_, Config) ->
+    interface_del(proplists:get_value(intf_to_del, Config)).
+
+%%--------------------------------------------------------------------
+%% Tests
+%%--------------------------------------------------------------------
 
 should_notify_about_veth_interfaces_flags(_Config) ->
+    should_notify_about_interfaces_flags(?VETH_INTF_1).
+
+should_notify_about_tap_interfaces_flags(_Config) ->
+    should_notify_about_interfaces_flags(?TAP_INTF).
+
+should_notify_about_interfaces_flags(Intf) ->
     %% GIVEN
-    interface_down(?VETH_END_A),
-    {ok, Ref} = netlink:subscribe(?VETH_END_A, [flags]),
-    
+    interface_down(Intf),
+    {ok, Ref} = netlink:subscribe(Intf, [flags]),
+
     %% WHEN
-    interface_up(?VETH_END_A),
-    interface_down(?VETH_END_A),
-    
+    interface_up(Intf),
+    interface_down(Intf),
+
     %% THEN
+    assert_interface(went_up, Ref, Intf),
+    assert_interface(went_down, Ref, Intf),
+    netlink:unsubscribe(Ref).
+
+assert_interface(ExceptedAction, Ref, Intf) ->
     receive
-        {netlink, Ref, ?VETH_END_A, flags, OldFlags0, NewFlags0} ->
-            ?assertMatch(undefined, OldFlags0),
-            ?assert(lists:member(up, NewFlags0))
+        {netlink, Ref, Intf, flags, OldFlags, NewFlags} ->
+            assert_interface_flags_indicate(ExceptedAction, OldFlags, NewFlags)
     after
         500 ->
-            ct:fail("No notification about ~p ~n", [?VETH_END_A])
-    end,
-    receive
-        {netlink, Ref, ?VETH_END_A, flags, OldFlags1, NewFlags1} ->
-            ?assert(lists:member(up, OldFlags1)),
-            ?assertNot(lists:member(up, NewFlags1))
-    after
-        500 ->
-            ct:fail("No notification about", [?VETH_END_A])
+            ct:fail("No notification about ~p ~n", [Intf])
     end.
 
+assert_interface_flags_indicate(went_up, OldFlags, NewFlags) ->
+    ?assertNot(lists:member(up, OldFlags)),
+    ?assert(lists:member(up, NewFlags));
+assert_interface_flags_indicate(went_down, OldFlags, NewFlags) ->
+    ?assert(lists:member(up, OldFlags)),
+    ?assertNot(lists:member(up, NewFlags)).
+
+%%--------------------------------------------------------------------
+%% Internal functions
+%%--------------------------------------------------------------------
+
+interfaces_exist_in_the_os(IntfList) ->
+    {ok, Addrs} = inet:getifaddrs(),
+    lists:any(fun(Intf) ->
+                      lists:keyfind(Intf, 1, Addrs)
+              end, IntfList).
+
+create_veth_interfaces_pair(Intf1, Intf2) ->
+    Cmd = io_lib:format("ip link add ~s type veth peer name ~s",
+                        [Intf1, Intf2]),
+    os:cmd(Cmd).
+
+create_tap_interface(Intf) ->
+    Cmd = io_lib:format("tunctl -t ~p", [Intf]),
+    os:cmd(Cmd).
 
 interface_down(Intf) ->
     Cmd = io_lib:format("ip link set dev ~s down", [Intf]),
@@ -67,7 +116,9 @@ interface_up(Intf) ->
     Cmd = io_lib:format("ip link set dev ~s up", [Intf]),
     os:cmd(Cmd).
 
-
+interface_del(Intf) ->
+    Cmd = io_lib:format("ip link del ~s", [Intf]),
+    os:cmd(Cmd).
 
 
 
