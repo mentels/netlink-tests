@@ -14,8 +14,16 @@
 %%--------------------------------------------------------------------
 
 all() ->
-    [should_notify_about_veth_interfaces_flags,
-     should_notify_about_tap_interfaces_flags].
+    [{group, veth_intefaces},
+     {group, tap_interfaces}].
+
+groups() ->
+    [{veth_intefaces, [sequence],
+      [%should_read_correct_veth_interface_operation_state,
+       should_notify_about_veth_interfaces_flags]},
+     {tap_interfaces, [sequence],
+      [%should_read_correct_tap_interface_operation_state,
+       should_notify_about_tap_interfaces_flags]}].
 
 %%--------------------------------------------------------------------
 %% Init & teardown
@@ -28,7 +36,7 @@ init_per_suite(Config) ->
 end_per_suite(_Config) ->
     netlink:stop().
 
-init_per_testcase(should_notify_about_veth_interfaces_flags, Config) ->
+init_per_group(veth_intefaces, Config) ->
     case interfaces_exist_in_the_os([?VETH_INTF_1, ?VETH_INTF_2]) of
         false ->
             create_veth_interfaces_pair(?VETH_INTF_1, ?VETH_INTF_2);
@@ -37,7 +45,7 @@ init_per_testcase(should_notify_about_veth_interfaces_flags, Config) ->
                     [?VETH_INTF_1, ?VETH_INTF_2])
     end,
     [{intf_to_del, ?VETH_INTF_1} | Config];
-init_per_testcase(should_notify_about_tap_interfaces_flags, Config) ->
+init_per_group(tap_interfaces, Config) ->
     case interfaces_exist_in_the_os([?TAP_INTF]) of
         false ->
             create_tap_interface(?TAP_INTF);
@@ -46,7 +54,7 @@ init_per_testcase(should_notify_about_tap_interfaces_flags, Config) ->
     end,
     [{intf_to_del, ?TAP_INTF} | Config].
 
-end_per_testcase(_, Config) ->
+end_per_group(_, Config) ->
     interface_del(proplists:get_value(intf_to_del, Config)).
 
 %%--------------------------------------------------------------------
