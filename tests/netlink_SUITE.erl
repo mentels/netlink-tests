@@ -19,11 +19,10 @@ all() ->
 
 groups() ->
     [{veth_intefaces, [sequence],
-      [%should_read_correct_veth_interface_operation_state,
+      [should_read_correct_veth_interface_operation_state,
        should_notify_about_veth_interfaces_flags]},
      {tap_interfaces, [sequence],
-      [%should_read_correct_tap_interface_operation_state,
-       should_notify_about_tap_interfaces_flags]}].
+      [should_notify_about_tap_interfaces_flags]}].
 
 %%--------------------------------------------------------------------
 %% Init & teardown
@@ -60,6 +59,37 @@ end_per_group(_, Config) ->
 %%--------------------------------------------------------------------
 %% Tests
 %%--------------------------------------------------------------------
+
+should_read_correct_veth_interface_operation_state(Config) ->
+    %% veth interface is in operational state up if its' peer is up too
+    interface_up(?VETH_INTF_2),
+    should_read_correct_interface_operstate(?VETH_INTF_1, Config),
+    interface_down(?VETH_INTF_2).
+
+should_read_correct_interface_operstate(Intf, Config) ->
+    [begin
+         %% GIVEN
+         case State of
+             down ->
+                 interface_down(Intf);
+             up ->
+                 interface_up(Intf)
+         end,
+         {ok, Ref} = netlink:subscribe(Intf),
+
+         %% WHEN
+         netlink:invalidate(Intf, [operstate]),
+         netlink:get_match(link, unspec, [{operstate, native, State}]),
+
+         %% THEN
+         receive
+             {netlink, Ref, Intf, operstate, _, Operstate} ->
+                 ?assertEqual(State, Operstate)
+         after
+             500 ->
+                 ct:fail("No notification about ~p ~n", [Intf])
+         end
+     end || State <- [down, up]].
 
 should_notify_about_veth_interfaces_flags(_Config) ->
     should_notify_about_interfaces_flags(?VETH_INTF_1).
